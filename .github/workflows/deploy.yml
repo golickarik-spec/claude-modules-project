@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------------
+# deploy.yml
+#
+# Builds the app image, pushes it to ECR, registers a new ECS task definition
+# revision and rolls out the ECS service on every push to `main`.
+#
+# Authentication to AWS uses GitHub OIDC (no long-lived access keys). The IAM
+# role (cloud-modules-gha-deploy), ECR repository, ECS cluster/service/task
+# definition and OIDC provider are all provisioned by Terraform.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   AWS_ACCOUNT_ID  -  12-digit AWS account ID. Used to build the OIDC role ARN
+#                      (arn:aws:iam::<acct>:role/cloud-modules-gha-deploy) and
+#                      the ECR registry host (<acct>.dkr.ecr.us-east-1.amazonaws.com).
+#
+# No AWS access keys / secret keys are needed or should be added.
+# ---------------------------------------------------------------------------
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Required for GitHub OIDC federation with AWS.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: cloud-modules-app
+  ECS_CLUSTER: cloud-modules-cluster
+  ECS_SERVICE: cloud-modules-svc
+  ECS_TASK_FAMILY: cloud-modules-task
+  CONTAINER_NAME: app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Set the AWS_ACCOUNT_ID secret; the role itself is created by Terraform.
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/cloud-modules-gha-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker build \
+            --file app/Dockerfile \
+            --tag "${IMAGE_URI}" \
+            ./app
+          docker push "${IMAGE_URI}"
+          echo "image=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${ECS_TASK_FAMILY}" \
+            --query taskDefinition \
+            --output json > task-definition.json
+
+      - name: Render new image into task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

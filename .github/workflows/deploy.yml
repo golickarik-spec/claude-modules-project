@@ -8,10 +8,9 @@
 # role (cloud-modules-gha-deploy), ECR repository, ECS cluster/service/task
 # definition and OIDC provider are all provisioned by Terraform.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   AWS_ACCOUNT_ID  -  12-digit AWS account ID. Used to build the OIDC role ARN
-#                      (arn:aws:iam::<acct>:role/cloud-modules-gha-deploy) and
-#                      the ECR registry host (<acct>.dkr.ecr.us-east-1.amazonaws.com).
+# No repository secrets are required. The AWS account ID is a plain env var
+# (it is not a credential — it appears in every ARN/ECR URL) and authentication
+# is via keyless GitHub OIDC federation.
 #
 # No AWS access keys / secret keys are needed or should be added.
 # ---------------------------------------------------------------------------
@@ -30,6 +29,9 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+  # AWS account ID is not a secret (it appears in every ARN/ECR URL). Kept as a
+  # plain env var so no repo secret is required; keyless OIDC auth is unchanged.
+  AWS_ACCOUNT_ID: "858208763445"
   ECR_REPOSITORY: cloud-modules-app
   ECS_CLUSTER: cloud-modules-cluster
   ECS_SERVICE: cloud-modules-svc
@@ -47,8 +49,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # Set the AWS_ACCOUNT_ID secret; the role itself is created by Terraform.
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/cloud-modules-gha-deploy
+          # The role itself is created by Terraform (iam_oidc.tf).
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/cloud-modules-gha-deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR

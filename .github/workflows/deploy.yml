@@ -8,9 +8,10 @@
 # role (cloud-modules-gha-deploy), ECR repository, ECS cluster/service/task
 # definition and OIDC provider are all provisioned by Terraform.
 #
-# No repository secrets are required. The AWS account ID is a plain env var
-# (it is not a credential — it appears in every ARN/ECR URL) and authentication
-# is via keyless GitHub OIDC federation.
+# No repository secrets are required. The AWS account ID is supplied via a
+# repo-level GitHub Actions *variable* (vars.AWS_ACCOUNT_ID) — it is not a
+# credential (it appears in every ARN/ECR URL); authentication is via keyless
+# GitHub OIDC federation.
 #
 # No AWS access keys / secret keys are needed or should be added.
 # ---------------------------------------------------------------------------
@@ -29,9 +30,10 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  # AWS account ID is not a secret (it appears in every ARN/ECR URL). Kept as a
-  # plain env var so no repo secret is required; keyless OIDC auth is unchanged.
-  AWS_ACCOUNT_ID: "858208763445"
+  # AWS account ID is not a secret (it appears in every ARN/ECR URL). Sourced
+  # from a repo-level Actions variable so it is not hardcoded here; set it under
+  # Settings > Secrets and variables > Actions > Variables. Keyless OIDC unchanged.
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
   ECR_REPOSITORY: cloud-modules-app
   ECS_CLUSTER: cloud-modules-cluster
   ECS_SERVICE: cloud-modules-svc

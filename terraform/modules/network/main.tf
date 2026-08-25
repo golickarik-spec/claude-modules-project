@@ -1,4 +1,4 @@
-# network.tf — VPC, subnets, gateways, and routing
+# network module — VPC, subnets, gateways, and routing
 
 # VPC
 resource "aws_vpc" "main" {
@@ -78,7 +78,7 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "cloud-modules-public-rt"
+    Name = "${var.name_prefix}-public-rt"
   }
 }
 
@@ -98,7 +98,7 @@ resource "aws_route_table" "private" {
   }
 
   tags = {
-    Name = "cloud-modules-private-rt"
+    Name = "${var.name_prefix}-private-rt"
   }
 }
 

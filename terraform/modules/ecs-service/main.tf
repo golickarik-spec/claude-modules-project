@@ -1,8 +1,8 @@
-# ecs.tf — ECS cluster, task execution role, logs, task definition, service
+# ecs-service module — ECS cluster, task execution role, logs, task definition, service
 
 # ECS cluster
 resource "aws_ecs_cluster" "main" {
-  name = "cloud-modules-cluster"
+  name = "${var.name_prefix}-cluster"
 }
 
 # Trust policy allowing ECS tasks to assume the execution role
@@ -30,28 +30,28 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 
 # CloudWatch log group for container logs
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "/ecs/cloud-modules"
-  retention_in_days = 7
+  name              = "/ecs/${var.name_prefix}"
+  retention_in_days = var.log_retention_in_days
 }
 
 # Fargate task definition
 resource "aws_ecs_task_definition" "app" {
-  family                   = "cloud-modules-task"
+  family                   = "${var.name_prefix}-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
+  cpu                      = var.cpu
+  memory                   = var.memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
 
   container_definitions = jsonencode([
     {
       name      = "app"
-      image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+      image     = "${var.ecr_repo_url}:${var.image_tag}"
       essential = true
       portMappings = [
         {
-          containerPort = 5000
-          hostPort      = 5000
+          containerPort = var.container_port
+          hostPort      = var.container_port
           protocol      = "tcp"
         }
       ]
@@ -76,14 +76,14 @@ resource "aws_ecs_task_definition" "app" {
 resource "aws_security_group" "task" {
   name        = "${var.name_prefix}-task-sg"
   description = "Allow app traffic from the ALB only"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   ingress {
     description     = "App port from ALB"
-    from_port       = 5000
-    to_port         = 5000
+    from_port       = var.container_port
+    to_port         = var.container_port
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    security_groups = [var.alb_sg_id]
   }
 
   egress {
@@ -101,26 +101,23 @@ resource "aws_security_group" "task" {
 
 # ECS service running the task behind the ALB
 resource "aws_ecs_service" "app" {
-  name            = "cloud-modules-svc"
+  name            = "${var.name_prefix}-svc"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 1
+  desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    subnets          = var.private_subnet_ids
     security_groups  = [aws_security_group.task.id]
     assign_public_ip = false
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.app.arn
+    target_group_arn = var.target_group_arn
     container_name   = "app"
-    container_port   = 5000
+    container_port   = var.container_port
   }
-
-  # The listener must exist before the service registers targets.
-  depends_on = [aws_lb_listener.http]
 
   # CI updates the service with new task-def revisions; ignore that drift.
   lifecycle {

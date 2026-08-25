@@ -18,3 +18,5 @@ task-definition.json
 # OS / editor
 .DS_Store
 Thumbs.db
+STUDY.md
+TROUBLESHOOTING.md
